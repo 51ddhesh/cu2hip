@@ -26,3 +26,5 @@ core/lib/extracted/*.aux
 # Stray CLI outputs at repo root (real outputs live in tests/, /tmp/)
 /*.hip
 /report.json
+
+ref/
