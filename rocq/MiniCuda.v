@@ -23,9 +23,10 @@ Inductive scalarTy := TyInt | TyFloat | TyDouble.
 Inductive binop :=
 | BAdd | BSub | BMul | BDiv | BMod
 | BLt | BLe | BGt | BGe | BEq | BNe
-| BAnd | BOr.
+| BAnd | BOr                              (* logical && || *)
+| BBitAnd | BBitOr | BBitXor | BShl | BShr. (* bitwise & | ^ << >> *)
 
-Inductive unop := UNeg | UNot.
+Inductive unop := UNeg | UNot | UBitNot.  (* - ! ~ *)
 
 Inductive builtin :=
 | B_tidx | B_tidy | B_tidz
@@ -148,6 +149,15 @@ Definition eval_binop_int (op : binop) (a b : Z) : option val :=
   | BNe => Some (VInt (if Z.eqb a b then 0 else 1))
   | BAnd => Some (VInt (if andb (negb (Z.eqb a 0)) (negb (Z.eqb b 0)) then 1 else 0))
   | BOr => Some (VInt (if orb (negb (Z.eqb a 0)) (negb (Z.eqb b 0)) then 1 else 0))
+  (* Bitwise ops on the (unbounded-Z) integer model, matching the existing
+     treatment of +,*,- : two's-complement value semantics via Z.land/lor/lxor,
+     Z.lnot for ~ (see eval_expr). Shift counts outside [0, 32) are UB in C, so
+     they are stuck (None, no behavior on either side) rather than modeled. *)
+  | BBitAnd => Some (VInt (Z.land a b))
+  | BBitOr => Some (VInt (Z.lor a b))
+  | BBitXor => Some (VInt (Z.lxor a b))
+  | BShl => if andb (Z.leb 0 b) (Z.ltb b 32) then Some (VInt (Z.shiftl a b)) else None
+  | BShr => if andb (Z.leb 0 b) (Z.ltb b 32) then Some (VInt (Z.shiftr a b)) else None
   end.
 
 Definition eval_binop_float (op : binop) (a b : PrimFloat.float) : option val :=
@@ -181,6 +191,11 @@ Fixpoint eval_expr (be : benv) (le : env) (gm : gmem) (e : expr) : option val :=
       | Some (VInt z) => Some (VInt (if Z.eqb z 0 then 1 else 0))
       | _ => None
       end
+  | EUnop UBitNot e1 =>
+      match eval_expr be le gm e1 with
+      | Some (VInt z) => Some (VInt (Z.lnot z))
+      | _ => None
+      end
   | EBinop op l r =>
       match eval_expr be le gm l, eval_expr be le gm r with
       | Some (VInt a), Some (VInt b) => eval_binop_int op a b
@@ -208,26 +223,73 @@ Fixpoint eval_list (be : benv) (le : env) (gm : gmem) (es : list expr) : option 
 
 (* ---------------- statement evaluation ---------------- *)
 
-Definition atomic_rmw (be : benv) (le : env) (gm : gmem) (d v : expr) : option (env * gmem) :=
-  match d with
-  | ESubscript b i =>
-      match eval_expr be le gm b, eval_expr be le gm i, eval_expr be le gm v with
-      | Some (VPtr a), Some (VInt j), Some (VInt w) =>
-          if idx_ok j then
-            match gm a j with
-            | VInt old => Some (le, mem_upd gm a j (VInt (old + w)))
-            | _ => None
-            end
-          else None
-      | Some (VPtr a), Some (VInt j), Some (VFloat w) =>
-          if idx_ok j then
-            match gm a j with
-            | VFloat old => Some (le, mem_upd gm a j (VFloat (PrimFloat.add old w)))
-            | _ => None
-            end
-          else None
-      | _, _, _ => None
+(* Block-scope atomics (v1). All are identically named in CUDA and HIP, so
+   map_program is the identity on them (no rename table entry, no classify
+   fact); only the memory effect is modeled — the returned OLD value is never
+   observed, since atomics appear only as statements and a nested
+   atomic-in-expression is stuck (eval_expr on ECall = None). int supports
+   Add/Sub/Max/Min/Exch/CAS; float supports Add/Sub/Exch (Max/Min/CAS are
+   int-only, matching the CUDA intrinsic surface). *)
+Definition is_atomic (f : string) : bool :=
+  existsb (String.eqb f)
+    ["atomicAdd"; "atomicSub"; "atomicMax"; "atomicMin"; "atomicExch"; "atomicCAS"].
+
+(* New cell value for a binary atomic (Add/Sub/Max/Min/Exch). None = the
+   (op, operand-type) pair is outside the modeled surface -> stuck. *)
+Definition atomic_bin (op : string) (old w : val) : option val :=
+  match old, w with
+  | VInt o, VInt x =>
+      if String.eqb op "atomicAdd" then Some (VInt (o + x))
+      else if String.eqb op "atomicSub" then Some (VInt (o - x))
+      else if String.eqb op "atomicMax" then Some (VInt (Z.max o x))
+      else if String.eqb op "atomicMin" then Some (VInt (Z.min o x))
+      else if String.eqb op "atomicExch" then Some (VInt x)
+      else None
+  | VFloat o, VFloat x =>
+      if String.eqb op "atomicAdd" then Some (VFloat (PrimFloat.add o x))
+      else if String.eqb op "atomicSub" then Some (VFloat (PrimFloat.sub o x))
+      else if String.eqb op "atomicExch" then Some (VFloat x)
+      else None
+  | _, _ => None
+  end.
+
+Definition eval_atomic (be : benv) (le : env) (gm : gmem)
+           (f : string) (args : list expr) : option (env * gmem) :=
+  match args with
+  | [d; v] =>
+      match d with
+      | ESubscript b i =>
+          match eval_expr be le gm b, eval_expr be le gm i, eval_expr be le gm v with
+          | Some (VPtr a), Some (VInt j), Some w =>
+              if idx_ok j then
+                match atomic_bin f (gm a j) w with
+                | Some nv => Some (le, mem_upd gm a j nv)
+                | None => None
+                end
+              else None
+          | _, _, _ => None
+          end
+      | _ => None
       end
+  | [d; c; v] =>   (* atomicCAS(&x, compare, val): int-only compare-and-swap *)
+      if String.eqb f "atomicCAS" then
+        match d with
+        | ESubscript b i =>
+            match eval_expr be le gm b, eval_expr be le gm i,
+                  eval_expr be le gm c, eval_expr be le gm v with
+            | Some (VPtr a), Some (VInt j), Some (VInt cmp), Some (VInt nv) =>
+                if idx_ok j then
+                  match gm a j with
+                  | VInt old =>
+                      Some (le, mem_upd gm a j (VInt (if Z.eqb old cmp then nv else old)))
+                  | _ => None
+                  end
+                else None
+            | _, _, _, _ => None
+            end
+        | _ => None
+        end
+      else None
   | _ => None
   end.
 
@@ -273,11 +335,7 @@ Fixpoint eval_stmt (be : benv) (le : env) (gm : gmem) (s : stmt) {struct s} : op
       end
   | SSync => Some (le, gm)  (* vacuous under WellSync (no shared state); see Sim.v *)
   | SExpr (ECall f args) =>
-      if String.eqb f "atomicAdd" then
-        match args with
-        | [d; e] => atomic_rmw be le gm d e
-        | _ => None
-        end
+      if is_atomic f then eval_atomic be le gm f args
       else
         match eval_expr be le gm (ECall f args) with
         | Some _ => Some (le, gm)
@@ -546,7 +604,7 @@ End Recursors.
 
 Fixpoint wf_expr (e : expr) : bool :=
   match e with
-  | ECall f args => andb (String.eqb f "atomicAdd") (forallb wf_expr args)
+  | ECall f args => andb (is_atomic f) (forallb wf_expr args)
   | EBinop _ l r => andb (wf_expr l) (wf_expr r)
   | EUnop _ e1 => wf_expr e1
   | ESubscript b i => andb (wf_expr b) (wf_expr i)

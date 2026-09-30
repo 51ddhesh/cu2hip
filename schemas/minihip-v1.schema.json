@@ -32,11 +32,11 @@
         { "type": "object", "required": ["kind", "op", "left", "right"],
           "properties": {
             "kind": { "const": "binop" },
-            "op": { "enum": ["+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "&&", "||"] },
+            "op": { "enum": ["+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "&&", "||", "&", "|", "^", "<<", ">>"] },
             "left": { "$ref": "#/$defs/expr" }, "right": { "$ref": "#/$defs/expr" } } },
         { "type": "object", "required": ["kind", "op", "expr"],
           "properties": {
-            "kind": { "const": "unop" }, "op": { "enum": ["!", "-"] },
+            "kind": { "const": "unop" }, "op": { "enum": ["!", "-", "~"] },
             "expr": { "$ref": "#/$defs/expr" } } },
         { "type": "object", "required": ["kind", "base", "index"],
           "properties": {

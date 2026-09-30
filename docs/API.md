@@ -9,6 +9,15 @@ or modifies an API MUST update this file in the same change.
 - Exit codes everywhere: `0` ok, `2` unsupported input (with `file:line:col`
   + hint), `3` internal error.
 - Stage wire format: versioned JSON-lines, `Mini*.json` schema `v1`.
+- Proof-integrity gate: `scripts/check_assumptions.sh` runs
+  `Print Assumptions transpile_correct` and fails unless the only assumptions
+  are the whitelisted `PrimFloat.*` IEEE-754 primitives (zero admits, no
+  classic axioms). Wired into `make proofs` and the CI `proof` job; it must
+  stay green as the accepted subset grows.
+- Frontend-independent core gate: `tests/run_core_roundtrip.sh` maps committed
+  MiniCUDA fixtures through `minimap` → `hip_print` and byte-compares the
+  emitted `.hip` (no Clang/CUDA needed), complementing the Clang-dependent
+  `tests/run_e2e.sh`.
 
 ## Schemas
 
@@ -16,6 +25,14 @@ or modifies an API MUST update this file in the same change.
 |-----------------|---------|-----------------------|---------------------|--------|
 | `MiniCUDA.json` | v1 (`schemas/minicuda-v1.schema.json`) | C++ frontend | OCaml verified core | defined (G1) |
 | `MiniHIP.json` | v1 (`schemas/minihip-v1.schema.json`) | OCaml verified core | printer / validator | defined (G1) |
+
+Versioning note (api-practices §4, "exactly one active schema version"):
+adding members to an existing `enum` (e.g. the bitwise `op` values, the `~`
+unop, the extra atomic call names) is **additive** — it changes no field's
+meaning, so both schemas stay at `v1`; the change is recorded in the log
+below. A version bump is reserved for shape changes (new node kinds or
+fields, e.g. a future kernel-`for` node or 3-D launch dims), which would then
+be a coordinated cutover of both schemas + the Rocq AST + printer.
 
 ## CLI
 
@@ -52,7 +69,11 @@ All mappings 1:1, FIFO stream semantics. Header `<cuda_runtime.h>` →
 
 Kernel constructs mapped 1:1: `__global__`, `__device__`, `__shared__`,
 `<<<grid, block[, stream]>>>` → `hipLaunchKernelGGL`, thread-index builtins,
-`__syncthreads`, block-scope `atomicAdd`.
+`__syncthreads`, and — all identically named, hence identity-mapped by the
+verified core — the operators (arithmetic, comparison, logical, and bitwise
+`& | ^ << >>` / `~`) and block-scope atomics `atomicAdd`, `atomicSub`,
+`atomicMax`, `atomicMin`, `atomicExch`, `atomicCAS`. Exact operand-type and
+shift-count rules are in `docs/SUPPORTED.md`.
 
 ## Libraries (per language)
 
@@ -82,3 +103,6 @@ parameters, returns, errors, minimal example._
 | 2026-09-20 | --version on all four binaries; scripts/make-release.sh packs dist tarball; dune needs @all to recurse | Release |
 | 2026-09-20 | Root Makefile unifies all builds (README/CI/release delegate); VERSION file pins releases; run_e2e honors $ARCH | Build |
 | 2026-09-20 | G2 hardening: host-cuda-leak/unsupported-include diagnostics, __shared__ collect+emit (outside proof), sizeof(int/float/double), semicolon capture | G6/G7 |
+| 2026-10-01 | Kernel ops extended (additive, schema stays v1): bitwise `& \| ^ << >>` + unary `~`; block atomics `atomicSub/Max/Min/Exch/CAS` alongside `atomicAdd`. MiniCuda.v semantics + rocq/Tests.v; transpile_correct still Qed, Print Assumptions = PrimFloat-only | v1.1 |
+| 2026-10-01 | Added `scripts/check_assumptions.sh` (proof-assumptions gate, wired into make proofs + CI) and `tests/run_core_roundtrip.sh` (frontend-independent core gate) + `bitops`/`atomics` fixtures + `docker/build` toolchain image | v1.1 |
+| 2026-10-01 | `bitops` promoted to a byte-compared gate: `tests/corpus/bitops.cu` verified end-to-end on real CUDA (frontend→core→printer), `tests/fixtures/bitops.minicuda.json` set to the actual frontend output, `tests/expected/bitops.hip` frozen, and `bitops` added to `run_e2e.sh`'s cmp loop | v1.1 |

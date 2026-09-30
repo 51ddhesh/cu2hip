@@ -39,6 +39,7 @@ proofs:
 	eval $$(opam env --switch=$(SWITCH) 2>/dev/null); \
 	cd rocq && (test -f Makefile || rocq makefile -f _RocqProject -o Makefile) && \
 	mkdir -p ../core/lib/extracted && make vos && make
+	sh scripts/check_assumptions.sh
 
 frontend:
 	cmake -S frontend -B frontend/build -DCMAKE_BUILD_TYPE=Release $(CMAKE_EXTRA)

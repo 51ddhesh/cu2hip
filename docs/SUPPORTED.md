@@ -17,7 +17,7 @@ exit code 2, and no output file. This file MUST match the implementation exactly
 | Launch | `k<<<grid, block[, stream]>>>` | `hipLaunchKernelGGL(k, grid, block, 0, stream, ...)` | 1-D configurations in v1 corpus |
 | Thread idx | `threadIdx.x`, `blockIdx.x`, `blockDim.x`, `gridDim.x` | identity | `.y`/`.z` accepted, corpus is 1-D |
 | Barrier | `__syncthreads()` | `__syncthreads()` | block scope; sole cross-thread sync primitive |
-| Block atomic | `atomicAdd(&x, v)` int/float | `atomicAdd(&x, v)` | block scope only |
+| Block atomic | `atomicAdd/atomicSub/atomicMax/atomicMin/atomicExch/atomicCAS` | identity | block scope; identically named so mapped by identity (no rename). `int`: all six; `float`: `Add`/`Sub`/`Exch` only (matches CUDA intrinsics). Target modeled as a subscript lvalue `arr[i]` — see the atomic-target note under Rejected |
 
 ## Host runtime API map (all 1:1, FIFO stream semantics)
 
@@ -46,6 +46,16 @@ Headers: `<cuda_runtime.h>` → `<hip/hip_runtime.h>`. Error type `cudaError_t` 
 ## Types / language
 
 `float`, `double`, `int`, 1-D arrays; flat 1-D indexing.
+
+Operators (identity-mapped; the verified core copies operators verbatim):
+arithmetic `+ - * / %`, comparison `< <= > >= == !=`, logical `&& || !`,
+unary negation `-`, and **bitwise `& | ^ << >>` with unary complement `~`**.
+Integer semantics compute in `Z` (same as `+`/`*`): `&`,`|`,`^`,`~` are
+two's-complement (`Z.land/lor/lxor/lnot`); shifts are `Z.shiftl/shiftr` with
+the count restricted to `[0, 32)` — out-of-range shift counts are UB in C and
+are stuck (no behavior on either side), never modeled. Bitwise operators
+require integer operands (float operands are stuck).
+
 `if` in kernels (with array-bracketed `then`/`else`); kernel `for`/`while`
 rejected (`loops`). `for`/`if` in host glue pass through opaquely as
 `host_code` (byte-identical, semicolon-captured).
@@ -71,3 +81,16 @@ Conditional compilation (`#if`/`#ifdef`, incl. `__CUDA_ARCH__` branches) is
 evaluated once for the frontend's fixed target (`--arch`, default `sm_86`);
 untaken branches are invisible, exactly as in a single-arch nvcc compile.
 Multi-arch variant selection is out of scope for v1.
+
+### Atomic target form (known limitation, pre-existing)
+
+The verified core models an atomic's destination as a subscript lvalue
+(`arr[i]`); its semantics (`eval_atomic`) execute exactly that shape. The
+frontend, however, only lowers `&var` to an address node and rejects
+`&arr[i]` (address-of-subscript), so array-element atomics are not yet
+reachable end-to-end. This predates the atomic-family extension (it applied
+equally to the original `atomicAdd`) and is tracked as a follow-up: the fix is
+to lower `&arr[i]` to the subscript node in the frontend and prepend `&` when
+the printer emits an atomic's target argument. The atomic *semantics* and
+their preservation under transpilation are proved regardless (see
+`rocq/Tests.v`).

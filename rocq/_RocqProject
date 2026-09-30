@@ -3,4 +3,5 @@ MiniCuda.v
 MiniHip.v
 Map.v
 Sim.v
+Tests.v
 Extract.v

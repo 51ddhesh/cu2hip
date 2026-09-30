@@ -1,0 +1,58 @@
+{
+  "schema": "minicuda/v1",
+  "source": "tests/fixtures/bitops.cu",
+  "program": {
+    "header": "cuda_runtime.h",
+    "kernels": [
+      {
+        "kind": "kernel", "name": "bitmix", "qualifier": "__global__",
+        "params": [
+          {"name": "a", "type": "int", "pointer": true},
+          {"name": "b", "type": "int", "pointer": true},
+          {"name": "c", "type": "int", "pointer": true},
+          {"name": "n", "type": "int", "pointer": false}
+        ],
+        "shared": [],
+        "body": [
+          {"kind": "let", "name": "i", "type": "int",
+           "value": {"kind": "binop", "op": "+",
+             "left": {"kind": "binop", "op": "*",
+               "left": {"kind": "builtin", "name": "blockIdx.x"},
+               "right": {"kind": "builtin", "name": "blockDim.x"}},
+             "right": {"kind": "builtin", "name": "threadIdx.x"}}},
+          {"kind": "if",
+           "cond": {"kind": "binop", "op": "<",
+             "left": {"kind": "var", "name": "i"}, "right": {"kind": "var", "name": "n"}},
+           "then": [
+             {"kind": "let", "name": "lo", "type": "int",
+              "value": {"kind": "binop", "op": "&",
+                "left": {"kind": "subscript", "base": {"kind": "var", "name": "a"}, "index": {"kind": "var", "name": "i"}},
+                "right": {"kind": "int", "value": 255}}},
+             {"kind": "let", "name": "hi", "type": "int",
+              "value": {"kind": "binop", "op": ">>",
+                "left": {"kind": "subscript", "base": {"kind": "var", "name": "a"}, "index": {"kind": "var", "name": "i"}},
+                "right": {"kind": "int", "value": 8}}},
+             {"kind": "let", "name": "packed", "type": "int",
+              "value": {"kind": "binop", "op": "|",
+                "left": {"kind": "binop", "op": "<<",
+                  "left": {"kind": "var", "name": "hi"}, "right": {"kind": "int", "value": 8}},
+                "right": {"kind": "var", "name": "lo"}}},
+             {"kind": "let", "name": "x", "type": "int",
+              "value": {"kind": "binop", "op": "^",
+                "left": {"kind": "subscript", "base": {"kind": "var", "name": "a"}, "index": {"kind": "var", "name": "i"}},
+                "right": {"kind": "subscript", "base": {"kind": "var", "name": "b"}, "index": {"kind": "var", "name": "i"}}}},
+             {"kind": "let", "name": "m", "type": "int",
+              "value": {"kind": "unop", "op": "~", "expr": {"kind": "var", "name": "x"}}},
+             {"kind": "store",
+              "target": {"kind": "subscript", "base": {"kind": "var", "name": "c"}, "index": {"kind": "var", "name": "i"}},
+              "value": {"kind": "binop", "op": "&",
+                "left": {"kind": "var", "name": "packed"}, "right": {"kind": "var", "name": "m"}}}
+           ],
+           "else": []}
+        ]
+      }
+    ],
+    "host": []
+  },
+  "diagnostics": []
+}

@@ -231,7 +231,10 @@ struct Converter {
                  jsonEscape(dr->getDecl()->getNameAsString()) + "\"}";
         return "";
       }
-      if (uo->getOpcode() != UO_LNot && uo->getOpcode() != UO_Minus) return "";
+      // Logical not (!), arithmetic negation (-), bitwise complement (~).
+      if (uo->getOpcode() != UO_LNot && uo->getOpcode() != UO_Minus &&
+          uo->getOpcode() != UO_Not)
+        return "";
       std::string s = expr(uo->getSubExpr());
       if (s.empty()) return "";
       return "{\"kind\": \"unop\", \"op\": \"" +
@@ -276,7 +279,8 @@ struct Converter {
       // Warp collectives get their own diagnostic from the TU-wide warp
       // matcher; device-helper calls are diagnosed by callsDeviceFn checks.
       if (const auto *dr = asDeclRef(strip(c->getCallee()))) {
-        if (dr->getDecl()->getNameAsString() == "atomicAdd") {
+        std::string n = dr->getDecl()->getNameAsString();
+        if (isAtomicName(n)) {
           std::string args;
           for (const Expr *a : c->arguments()) {
             std::string s = expr(a);
@@ -284,7 +288,7 @@ struct Converter {
             if (!args.empty()) args += ", ";
             args += s;
           }
-          return "{\"kind\": \"call\", \"name\": \"atomicAdd\", \"args\": [" + args + "]}";
+          return "{\"kind\": \"call\", \"name\": \"" + jsonEscape(n) + "\", \"args\": [" + args + "]}";
         }
       }
       return "";
@@ -297,6 +301,13 @@ struct Converter {
            n == "__shfl_xor_sync" || n == "__shfl" || n == "__ballot_sync" || n == "__ballot" ||
            n == "__any_sync" || n == "__all_sync" || n == "__activemask" ||
            n == "__match_any_sync" || n == "__match_all_sync";
+  }
+
+  // Block-scope atomics accepted in v1 (identically named in CUDA/HIP, so the
+  // verified core maps them by identity). Same call surface as atomicAdd.
+  static bool isAtomicName(const std::string &n) {
+    return n == "atomicAdd" || n == "atomicSub" || n == "atomicMax" ||
+           n == "atomicMin" || n == "atomicExch" || n == "atomicCAS";
   }
 
   // True if the subtree calls a __device__ helper (v1 reject with hint).
@@ -444,15 +455,16 @@ struct Converter {
       if (const auto *dr = asDeclRef(strip(ce->getCallee()))) {
         std::string n = dr->getDecl()->getNameAsString();
         if (n == "__syncthreads" && ce->getNumArgs() == 0) return "{\"kind\": \"syncthreads\"}";
-        if (n == "atomicAdd") {
+        if (isAtomicName(n)) {
           std::string args;
           for (const Expr *a : ce->arguments()) {
             std::string x = expr(a);
-            if (x.empty()) { reject(s, "bad-atomic", "atomicAdd uses unsupported arguments"); return ""; }
+            if (x.empty()) { reject(s, "bad-atomic", n + " uses unsupported arguments"); return ""; }
             if (!args.empty()) args += ", ";
             args += x;
           }
-          return "{\"kind\": \"expr_stmt\", \"expr\": {\"kind\": \"call\", \"name\": \"atomicAdd\", \"args\": [" + args + "]}}";
+          return "{\"kind\": \"expr_stmt\", \"expr\": {\"kind\": \"call\", \"name\": \"" +
+                 jsonEscape(n) + "\", \"args\": [" + args + "]}}";
         }
       }
       if (callsWarpBuiltin(ce)) return ""; // owned by the TU-wide warp matcher

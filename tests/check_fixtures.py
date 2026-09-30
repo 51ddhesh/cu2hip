@@ -22,7 +22,12 @@ CUDA_APIS = {"cudaMalloc", "cudaMemcpy", "cudaMemset", "cudaFree",
 HIP_APIS = {"hip" + a[4:] for a in CUDA_APIS}
 BUILTINS = {f"{b}.{a}" for b in ("threadIdx", "blockIdx", "blockDim", "gridDim")
             for a in ("x", "y", "z")}
-BINOPS = {"+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "&&", "||"}
+BINOPS = {"+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "&&", "||",
+          "&", "|", "^", "<<", ">>"}
+UNOPS = {"!", "-", "~"}
+# Device calls the verified core admits inside expressions (mirrors
+# MiniCuda.is_atomic / wf_expr): block-scope atomics only.
+ATOMICS = {"atomicAdd", "atomicSub", "atomicMax", "atomicMin", "atomicExch", "atomicCAS"}
 ERRORS = []
 
 
@@ -46,7 +51,7 @@ def check_expr(e, ctx, hip):
         check_expr(e.get("left"), ctx, hip)
         check_expr(e.get("right"), ctx, hip)
     elif k == "unop":
-        if e.get("op") not in ("!", "-"):
+        if e.get("op") not in UNOPS:
             err(f"{ctx}: bad unop {e.get('op')}")
         check_expr(e.get("expr"), ctx, hip)
     elif k == "subscript":
@@ -59,6 +64,8 @@ def check_expr(e, ctx, hip):
         if not isinstance(e.get("name"), str):
             err(f"{ctx}: addrof without name")
     elif k == "call":
+        if e.get("name") not in ATOMICS:
+            err(f"{ctx}: call to non-atomic {e.get('name')!r} (only {sorted(ATOMICS)} admitted)")
         for a in e.get("args", []):
             check_expr(a, ctx, hip)
     else:
@@ -152,6 +159,8 @@ def main():
         ("vectorAdd.minicuda.json", "minicuda/v1", "cuda_runtime.h", CUDA_APIS),
         ("saxpy.minicuda.json", "minicuda/v1", "cuda_runtime.h", CUDA_APIS),
         ("reject-asm.minicuda.json", "minicuda/v1", "cuda_runtime.h", CUDA_APIS),
+        ("bitops.minicuda.json", "minicuda/v1", "cuda_runtime.h", CUDA_APIS),
+        ("atomics.minicuda.json", "minicuda/v1", "cuda_runtime.h", CUDA_APIS),
         ("vectorAdd.minihip.json", "minihip/v1", "hip/hip_runtime.h", HIP_APIS),
     ]
     for name, tag, header, apis in plans:

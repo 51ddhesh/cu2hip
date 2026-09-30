@@ -54,19 +54,22 @@ let binop_of_string = function
   | "+" -> BAdd | "-" -> BSub | "*" -> BMul | "/" -> BDiv | "%" -> BMod
   | "<" -> BLt | "<=" -> BLe | ">" -> BGt | ">=" -> BGe
   | "==" -> BEq | "!=" -> BNe | "&&" -> BAnd | "||" -> BOr
+  | "&" -> BBitAnd | "|" -> BBitOr | "^" -> BBitXor | "<<" -> BShl | ">>" -> BShr
   | s -> raise (Json_error ("binop: " ^ s))
 
 let string_of_binop = function
   | BAdd -> "+" | BSub -> "-" | BMul -> "*" | BDiv -> "/" | BMod -> "%"
   | BLt -> "<" | BLe -> "<=" | BGt -> ">" | BGe -> ">="
   | BEq -> "==" | BNe -> "!=" | BAnd -> "&&" | BOr -> "||"
+  | BBitAnd -> "&" | BBitOr -> "|" | BBitXor -> "^" | BShl -> "<<" | BShr -> ">>"
 
 let unop_of_string = function
   | "-" -> UNeg
   | "!" -> UNot
+  | "~" -> UBitNot
   | s -> raise (Json_error ("unop: " ^ s))
 
-let string_of_unop = function UNeg -> "-" | UNot -> "!"
+let string_of_unop = function UNeg -> "-" | UNot -> "!" | UBitNot -> "~"
 
 let builtin_of_string = function
   | "threadIdx.x" -> B_tidx | "threadIdx.y" -> B_tidy | "threadIdx.z" -> B_tidz
