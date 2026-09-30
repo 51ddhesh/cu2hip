@@ -273,26 +273,9 @@ struct Converter {
       }
       return "";
     }
-    if (const auto *c = dyn_cast<CallExpr>(e)) {
-      // Only atomicAdd may appear inside MiniCUDA expressions; every other
-      // call (device helpers, warp collectives, ...) fails conversion here.
-      // Warp collectives get their own diagnostic from the TU-wide warp
-      // matcher; device-helper calls are diagnosed by callsDeviceFn checks.
-      if (const auto *dr = asDeclRef(strip(c->getCallee()))) {
-        std::string n = dr->getDecl()->getNameAsString();
-        if (isAtomicName(n)) {
-          std::string args;
-          for (const Expr *a : c->arguments()) {
-            std::string s = expr(a);
-            if (s.empty()) return "";
-            if (!args.empty()) args += ", ";
-            args += s;
-          }
-          return "{\"kind\": \"call\", \"name\": \"" + jsonEscape(n) + "\", \"args\": [" + args + "]}";
-        }
-      }
-      return "";
-    }
+    // Atomic calls are statement-only: their CUDA return value is not part of
+    // the MiniCUDA model. kernelStmt handles the supported call form below.
+    if (isa<CallExpr>(e)) return "";
     return "";
   }
 
@@ -308,6 +291,40 @@ struct Converter {
   static bool isAtomicName(const std::string &n) {
     return n == "atomicAdd" || n == "atomicSub" || n == "atomicMax" ||
            n == "atomicMin" || n == "atomicExch" || n == "atomicCAS";
+  }
+
+  // The proven atomic semantics consumes a subscript target. Keep this
+  // lowering scoped to the first atomic argument: ordinary &var stays
+  // EAddrof for host API calls and unsupported device forms still reject.
+  std::string atomicTargetExpr(const Expr *e, std::string &targetTy) {
+    targetTy.clear();
+    e = strip(e);
+    if (!e) return "";
+    if (const auto *uo = dyn_cast<UnaryOperator>(e)) {
+      if (uo->getOpcode() != UO_AddrOf) return "";
+      const Expr *target = strip(uo->getSubExpr());
+      if (!isa_and_nonnull<ArraySubscriptExpr>(target)) return "";
+      bool isPtr = false;
+      targetTy = scalarName(target->getType(), isPtr);
+      if (targetTy.empty() || isPtr) return "";
+      return expr(target);  // &arr[i] -> ESubscript(arr, i)
+    }
+    // Bare-pointer support is intentionally a variable only: accepting p + i
+    // would silently widen the documented source subset to pointer arithmetic.
+    if (!asDeclRef(e) || !e->getType()->isPointerType()) return "";
+    bool isPtr = false;
+    targetTy = scalarName(e->getType(), isPtr);
+    if (targetTy.empty() || !isPtr) return "";
+    std::string base = expr(e);
+    if (base.empty()) return "";
+    return "{\"kind\": \"subscript\", \"base\": " + base +
+           ", \"index\": {\"kind\": \"int\", \"value\": 0}}";
+  }
+
+  static bool atomicSupportsType(const std::string &name, const std::string &targetTy) {
+    if (targetTy == "int") return true;
+    return targetTy == "float" &&
+           (name == "atomicAdd" || name == "atomicSub" || name == "atomicExch");
   }
 
   // True if the subtree calls a __device__ helper (v1 reject with hint).
@@ -456,12 +473,21 @@ struct Converter {
         std::string n = dr->getDecl()->getNameAsString();
         if (n == "__syncthreads" && ce->getNumArgs() == 0) return "{\"kind\": \"syncthreads\"}";
         if (isAtomicName(n)) {
-          std::string args;
-          for (const Expr *a : ce->arguments()) {
-            std::string x = expr(a);
+          const unsigned expectedArgs = n == "atomicCAS" ? 3 : 2;
+          if (ce->getNumArgs() != expectedArgs) {
+            reject(s, "bad-atomic", n + " requires " + std::to_string(expectedArgs) + " arguments");
+            return "";
+          }
+          std::string targetTy;
+          std::string args = atomicTargetExpr(ce->getArg(0), targetTy);
+          if (args.empty() || !atomicSupportsType(n, targetTy)) {
+            reject(s, "bad-atomic", n + " uses an unsupported target");
+            return "";
+          }
+          for (unsigned i = 1; i < ce->getNumArgs(); ++i) {
+            std::string x = expr(ce->getArg(i));
             if (x.empty()) { reject(s, "bad-atomic", n + " uses unsupported arguments"); return ""; }
-            if (!args.empty()) args += ", ";
-            args += x;
+            args += ", " + x;
           }
           return "{\"kind\": \"expr_stmt\", \"expr\": {\"kind\": \"call\", \"name\": \"" +
                  jsonEscape(n) + "\", \"args\": [" + args + "]}}";

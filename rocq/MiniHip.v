@@ -24,8 +24,14 @@ Definition hip_apis : list string :=
    "hipEventElapsedTime"; "hipGetLastError"; "hipGetErrorString";
    "hipSetDevice"; "hipDeviceSynchronize"].
 
+Definition well_formed_cuda (p : program) : bool :=
+  wf_programb cuda_apis cuda_header p.
+
+Definition well_formed_hip (p : program) : bool :=
+  wf_programb hip_apis hip_header p.
+
 Definition WellFormedCuda (p : program) : Prop :=
-  wf_program cuda_apis cuda_header p.
+  well_formed_cuda p = true.
 
 Definition WellFormedHip (p : program) : Prop :=
-  wf_program hip_apis hip_header p.
+  well_formed_hip p = true.

@@ -79,6 +79,28 @@ let () =
       prerr_endline ("minimap: bad program: " ^ e);
       exit 3
   in
+  if not (Extracted.MiniHip.well_formed_cuda prog) then (
+    let oc = open_out !output in
+    Yojson.Basic.to_channel oc
+      (`Assoc
+        [
+          ("schema", `String "minihip/v1");
+          ("source", `String source);
+          ("program", `Null);
+          ( "diagnostics",
+            `List
+              [
+                json_of_diagnostic
+                  ( "Unsupported",
+                    "invalid-program",
+                    source,
+                    "input is outside the proved MiniCUDA subset (see SUPPORTED.md)" );
+              ] );
+        ]);
+    output_char oc '\n';
+    close_out oc;
+    prerr_endline "minimap: input is outside the proved subset (see output diagnostics)";
+    exit 2);
   (match Extracted.Map.map_program prog with
   | None ->
       let oc = open_out !output in

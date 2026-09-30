@@ -16,6 +16,11 @@ open Extracted.MiniCuda
 let buf = Buffer.create 4096
 let emit s = Buffer.add_string buf s
 
+let is_atomic_name = function
+  | "atomicAdd" | "atomicSub" | "atomicMax" | "atomicMin" | "atomicExch"
+  | "atomicCAS" -> true
+  | _ -> false
+
 let rec render_expr = function
   | EVar x -> str_of_cl x
   | EInt z -> string_of_int z
@@ -31,6 +36,9 @@ let rec render_expr = function
   | ESubscript (b, i) -> render_expr b ^ "[" ^ render_expr i ^ "]"
   | EBuiltin b -> string_of_builtin b
   | EAddrof x -> "&" ^ str_of_cl x
+  | ECall (f, target :: args) when is_atomic_name (str_of_cl f) ->
+      str_of_cl f ^ "(&" ^ render_expr target ^ ", "
+      ^ String.concat ", " (List.map render_expr args) ^ ")"
   | ECall (f, args) -> str_of_cl f ^ "(" ^ String.concat ", " (List.map render_expr args) ^ ")"
 
 let render_ty = function

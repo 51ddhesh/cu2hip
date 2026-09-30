@@ -16,7 +16,7 @@ eval "$(opam env --switch=cuda-rocm-rocq 2>/dev/null)"
 MM=_build/default/core/bin/minimap.exe
 HP=_build/default/printer/hip_print.exe
 python3 tests/check_fixtures.py
-for k in vectorAdd saxpy; do
+for k in vectorAdd saxpy bitops atomics; do
   $CU2MINI tests/corpus/$k.cu -o /tmp/e2e.$k.cu.json $CU2MINI_FLAGS
   $MM /tmp/e2e.$k.cu.json -o /tmp/e2e.$k.hip.json
   $HP /tmp/e2e.$k.hip.json -o /tmp/e2e.$k.hip

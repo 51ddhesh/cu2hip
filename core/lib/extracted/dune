@@ -1,6 +1,6 @@
 (library
  (name extracted)
- (modules MiniCuda MiniHip Map Ascii BinNums Datatypes ListDef String PrimFloat)
+ (modules MiniCuda MiniHip Map Ascii BinNums Datatypes List ListDef PeanoNat String PrimFloat)
  (libraries rocq-runtime.kernel))
 
 (env

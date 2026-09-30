@@ -72,8 +72,10 @@ Kernel constructs mapped 1:1: `__global__`, `__device__`, `__shared__`,
 `__syncthreads`, and — all identically named, hence identity-mapped by the
 verified core — the operators (arithmetic, comparison, logical, and bitwise
 `& | ^ << >>` / `~`) and block-scope atomics `atomicAdd`, `atomicSub`,
-`atomicMax`, `atomicMin`, `atomicExch`, `atomicCAS`. Exact operand-type and
-shift-count rules are in `docs/SUPPORTED.md`.
+`atomicMax`, `atomicMin`, `atomicExch`, `atomicCAS`. They are statement-only;
+the first argument is an atomic destination (`&arr[i]` or pointer variable `p`
+→ `p[0]`), `atomicCAS` takes three arguments, and the others take two. Exact
+operand-type and shift-count rules are in `docs/SUPPORTED.md`.
 
 ## Libraries (per language)
 
@@ -85,6 +87,7 @@ parameters, returns, errors, minimal example._
 | `transpile_correct` | Rocq (`rocq/Sim.v`) | `forall mc mh he hm gm, map_program mc = Some mh -> WellFormedCuda mc -> WellSync mc -> run_program mc he hm gm = run_program mh he hm gm /\ pheader mh = hip_header` | The v1 correctness theorem: identical event traces + HIP header | n/a (proof) | `Qed`, zero admits |
 | `map_program` | Rocq (`rocq/Map.v`) | `program -> option program` | Verified core mapping: renames 16 APIs + header, copies shapes | `None` on unknown API | proved (`classify_map`, shape-identity lemmas) |
 | `run_program` | Rocq (`rocq/MiniCuda.v`) | `program -> env -> hmem -> gmem -> option (list event * hmem * gmem)` | Executable semantics behaviors are compared with | `None` = stuck (no behavior) | model |
+| `well_formed_cuda` | Rocq/extracted OCaml (`rocq/MiniHip.v`) | `program -> bool` | Executable admission gate used by `minimap` before `map_program` | `false` → `Unsupported(invalid-program, ...)`, exit 2 | model / enforced |
 | `classify` | Rocq (`rocq/MiniCuda.v`) | `string -> apiOp` | Vendor-neutral API classification; both `cuda*`/`hip*` map to same op | `OpOther` = stuck | model |
 
 ## Change log
@@ -106,3 +109,4 @@ parameters, returns, errors, minimal example._
 | 2026-10-01 | Kernel ops extended (additive, schema stays v1): bitwise `& \| ^ << >>` + unary `~`; block atomics `atomicSub/Max/Min/Exch/CAS` alongside `atomicAdd`. MiniCuda.v semantics + rocq/Tests.v; transpile_correct still Qed, Print Assumptions = PrimFloat-only | v1.1 |
 | 2026-10-01 | Added `scripts/check_assumptions.sh` (proof-assumptions gate, wired into make proofs + CI) and `tests/run_core_roundtrip.sh` (frontend-independent core gate) + `bitops`/`atomics` fixtures + `docker/build` toolchain image | v1.1 |
 | 2026-10-01 | `bitops` promoted to a byte-compared gate: `tests/corpus/bitops.cu` verified end-to-end on real CUDA (frontend→core→printer), `tests/fixtures/bitops.minicuda.json` set to the actual frontend output, `tests/expected/bitops.hip` frozen, and `bitops` added to `run_e2e.sh`'s cmp loop | v1.1 |
+| 2026-10-01 | Atomic statement targets are now end-to-end: frontend lowers `&arr[i]` to the proven subscript form and bare pointer targets to `[0]`; printer restores `&` at the first atomic argument; `minimap` executes the extracted `well_formed_cuda` gate before mapping, and `atomics` is frozen in core and CUDA-box E2E gates. Atomic return values remain rejected. | v1.1 |

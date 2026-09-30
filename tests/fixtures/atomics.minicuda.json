@@ -1,14 +1,13 @@
 {
   "schema": "minicuda/v1",
-  "source": "tests/fixtures/atomics.cu",
+  "source": "tests/corpus/atomics.cu",
   "program": {
     "header": "cuda_runtime.h",
     "kernels": [
       {
-        "kind": "kernel", "name": "reduceStats", "qualifier": "__global__",
+        "kind": "kernel", "name": "atomics", "qualifier": "__global__",
         "params": [
-          {"name": "a", "type": "int", "pointer": true},
-          {"name": "acc", "type": "int", "pointer": true},
+          {"name": "hist", "type": "int", "pointer": true},
           {"name": "n", "type": "int", "pointer": false}
         ],
         "shared": [],
@@ -23,20 +22,26 @@
            "cond": {"kind": "binop", "op": "<",
              "left": {"kind": "var", "name": "i"}, "right": {"kind": "var", "name": "n"}},
            "then": [
-             {"kind": "let", "name": "v", "type": "int",
-              "value": {"kind": "subscript", "base": {"kind": "var", "name": "a"}, "index": {"kind": "var", "name": "i"}}},
              {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicAdd",
-               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "acc"}, "index": {"kind": "int", "value": 0}}, {"kind": "var", "name": "v"}]}},
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "var", "name": "i"}}, {"kind": "int", "value": 1}]}},
              {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicSub",
-               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "acc"}, "index": {"kind": "int", "value": 1}}, {"kind": "int", "value": 1}]}},
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "var", "name": "i"}}, {"kind": "int", "value": 1}]}},
              {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicMax",
-               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "acc"}, "index": {"kind": "int", "value": 2}}, {"kind": "var", "name": "v"}]}},
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "var", "name": "i"}}, {"kind": "var", "name": "i"}]}},
              {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicMin",
-               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "acc"}, "index": {"kind": "int", "value": 3}}, {"kind": "var", "name": "v"}]}},
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "var", "name": "i"}}, {"kind": "var", "name": "i"}]}},
              {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicExch",
-               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "acc"}, "index": {"kind": "int", "value": 4}}, {"kind": "var", "name": "v"}]}},
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "var", "name": "i"}}, {"kind": "var", "name": "i"}]}},
              {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicCAS",
-               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "acc"}, "index": {"kind": "int", "value": 5}}, {"kind": "int", "value": 0}, {"kind": "var", "name": "v"}]}}
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "var", "name": "i"}}, {"kind": "var", "name": "i"}, {"kind": "binop", "op": "+", "left": {"kind": "var", "name": "i"}, "right": {"kind": "int", "value": 1}}]}}
+           ],
+           "else": []},
+          {"kind": "if",
+           "cond": {"kind": "binop", "op": "==",
+             "left": {"kind": "var", "name": "i"}, "right": {"kind": "int", "value": 0}},
+           "then": [
+             {"kind": "expr_stmt", "expr": {"kind": "call", "name": "atomicAdd",
+               "args": [{"kind": "subscript", "base": {"kind": "var", "name": "hist"}, "index": {"kind": "int", "value": 0}}, {"kind": "int", "value": 1}]}}
            ],
            "else": []}
         ]

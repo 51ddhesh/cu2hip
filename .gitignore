@@ -28,3 +28,6 @@ core/lib/extracted/*.aux
 /report.json
 
 ref/
+
+# python cache
+__pycache__

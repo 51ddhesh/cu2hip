@@ -75,3 +75,48 @@ Example ex_map_atomic :
   map_stmt (SExpr (ECall "atomicMax" [ESubscript (EVar "d") (EInt 0); EInt 7]))
   = SExpr (ECall "atomicMax" [ESubscript (EVar "d") (EInt 0); EInt 7]).
 Proof. reflexivity. Qed.
+
+(* Atomic admission is exact: statement form, subscript target, and the
+   operation-specific arity. This keeps the frontend and fixture checker from
+   accepting a shape eval_atomic cannot execute. *)
+Example ex_wf_atomic_stmt :
+  wf_stmt (SExpr (ECall "atomicAdd"
+    [ESubscript (EVar "acc") (EInt 0); EInt 1])) = true.
+Proof. reflexivity. Qed.
+
+Example ex_wf_atomic_value_rejected :
+  wf_expr (ECall "atomicAdd"
+    [ESubscript (EVar "acc") (EInt 0); EInt 1]) = false.
+Proof. reflexivity. Qed.
+
+Example ex_wf_atomic_target_rejected :
+  wf_stmt (SExpr (ECall "atomicAdd" [EAddrof "acc"; EInt 1])) = false.
+Proof. reflexivity. Qed.
+
+Example ex_wf_atomic_arity_rejected :
+  wf_stmt (SExpr (ECall "atomicCAS"
+    [ESubscript (EVar "acc") (EInt 0); EInt 1])) = false.
+Proof. reflexivity. Qed.
+
+
+Definition atomic_wf_program : program :=
+  {| pheader := "cuda_runtime.h";
+     pkernels :=
+       [{| kname := "k"; kparams := []; kshared := [];
+          kbody := [SExpr (ECall "atomicAdd"
+            [ESubscript (EVar "acc") (EInt 0); EInt 1])] |}];
+     phost := [] |}.
+
+Example ex_wf_programb_atomic_stmt :
+  wf_programb [] "cuda_runtime.h" atomic_wf_program = true.
+Proof. reflexivity. Qed.
+
+Example ex_wf_programb_atomic_arity_rejected :
+  wf_programb [] "cuda_runtime.h"
+    {| pheader := "cuda_runtime.h";
+       pkernels :=
+         [{| kname := "k"; kparams := []; kshared := [];
+            kbody := [SExpr (ECall "atomicAdd"
+              [ESubscript (EVar "acc") (EInt 0)])] |}];
+       phost := [] |} = false.
+Proof. reflexivity. Qed.

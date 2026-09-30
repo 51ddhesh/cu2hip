@@ -17,7 +17,7 @@ exit code 2, and no output file. This file MUST match the implementation exactly
 | Launch | `k<<<grid, block[, stream]>>>` | `hipLaunchKernelGGL(k, grid, block, 0, stream, ...)` | 1-D configurations in v1 corpus |
 | Thread idx | `threadIdx.x`, `blockIdx.x`, `blockDim.x`, `gridDim.x` | identity | `.y`/`.z` accepted, corpus is 1-D |
 | Barrier | `__syncthreads()` | `__syncthreads()` | block scope; sole cross-thread sync primitive |
-| Block atomic | `atomicAdd/atomicSub/atomicMax/atomicMin/atomicExch/atomicCAS` | identity | block scope; identically named so mapped by identity (no rename). `int`: all six; `float`: `Add`/`Sub`/`Exch` only (matches CUDA intrinsics). Target modeled as a subscript lvalue `arr[i]` — see the atomic-target note under Rejected |
+| Block atomic | `atomicAdd/atomicSub/atomicMax/atomicMin/atomicExch/atomicCAS` | identity | statement form only; identically named so mapped by identity. `int`: all six; `float`: `Add`/`Sub`/`Exch` only. Destination must be `&arr[i]` or a bare pointer variable `p`, normalized to `p[0]`; return values are rejected. |
 
 ## Host runtime API map (all 1:1, FIFO stream semantics)
 
@@ -82,15 +82,16 @@ evaluated once for the frontend's fixed target (`--arch`, default `sm_86`);
 untaken branches are invisible, exactly as in a single-arch nvcc compile.
 Multi-arch variant selection is out of scope for v1.
 
-### Atomic target form (known limitation, pre-existing)
+### Atomic target form
 
-The verified core models an atomic's destination as a subscript lvalue
-(`arr[i]`); its semantics (`eval_atomic`) execute exactly that shape. The
-frontend, however, only lowers `&var` to an address node and rejects
-`&arr[i]` (address-of-subscript), so array-element atomics are not yet
-reachable end-to-end. This predates the atomic-family extension (it applied
-equally to the original `atomicAdd`) and is tracked as a follow-up: the fix is
-to lower `&arr[i]` to the subscript node in the frontend and prepend `&` when
-the printer emits an atomic's target argument. The atomic *semantics* and
-their preservation under transpilation are proved regardless (see
-`rocq/Tests.v`).
+Atomics are supported only as standalone kernel statements because their
+returned old value is not modeled. Their first argument must be either an
+addressed array element (`atomicAdd(&arr[i], value)`) or a bare pointer
+variable (`atomicAdd(ptr, value)`); the frontend lowers them to the verified
+subscript-target form `arr[i]` and `ptr[0]`, respectively. `atomicCAS`
+requires `target, compare, replacement`; every other supported atomic requires
+`target, value`. `int` supports all six operations; `float` supports only
+`atomicAdd`, `atomicSub`, and `atomicExch`; `double` atomics are rejected.
+The printer restores `&` only for that first atomic argument. Scalar `&var`,
+pointer arithmetic, field targets, malformed arities, and atomic calls used as
+values are rejected.

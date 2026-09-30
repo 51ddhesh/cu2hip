@@ -35,7 +35,7 @@ def err(msg):
     ERRORS.append(msg)
 
 
-def check_expr(e, ctx, hip):
+def check_expr(e, ctx, hip, allow_atomic=False):
     if not isinstance(e, dict) or "kind" not in e:
         return err(f"{ctx}: expr not an object with kind: {e!r:.80}")
     k = e["kind"]
@@ -64,9 +64,20 @@ def check_expr(e, ctx, hip):
         if not isinstance(e.get("name"), str):
             err(f"{ctx}: addrof without name")
     elif k == "call":
-        if e.get("name") not in ATOMICS:
-            err(f"{ctx}: call to non-atomic {e.get('name')!r} (only {sorted(ATOMICS)} admitted)")
-        for a in e.get("args", []):
+        name, args = e.get("name"), e.get("args")
+        if not allow_atomic:
+            err(f"{ctx}: atomic calls are allowed only in expr_stmt")
+        if name not in ATOMICS:
+            err(f"{ctx}: call to non-atomic {name!r} (only {sorted(ATOMICS)} admitted)")
+        if not isinstance(args, list):
+            err(f"{ctx}: atomic arguments must be a list")
+            return
+        expected_arity = 3 if name == "atomicCAS" else 2
+        if len(args) != expected_arity:
+            err(f"{ctx}: {name} requires {expected_arity} arguments")
+        elif not isinstance(args[0], dict) or args[0].get("kind") != "subscript":
+            err(f"{ctx}: {name} target must be a subscript")
+        for a in args:
             check_expr(a, ctx, hip)
     else:
         err(f"{ctx}: unknown expr kind {k!r}")
@@ -94,7 +105,7 @@ def check_stmt(s, ctx, hip):
     elif k in ("syncthreads",):
         pass
     elif k == "expr_stmt":
-        check_expr(s["expr"], ctx, hip)
+        check_expr(s["expr"], ctx, hip, allow_atomic=True)
     else:
         err(f"{ctx}: unknown stmt kind {k!r}")
 

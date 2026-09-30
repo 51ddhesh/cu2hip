@@ -11,5 +11,6 @@ Require Import Cu2Hip.Map.
 
 Cd "../core/lib/extracted".
 Separate Extraction
+  MiniHip.well_formed_cuda
   Map.map_program Map.mapApi
   Map.map_expr Map.map_stmts Map.map_stmt Map.map_kernel Map.map_hostNode Map.map_host.

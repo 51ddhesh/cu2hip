@@ -602,14 +602,31 @@ End Recursors.
 
 (* ---------------- well-formedness (parameterized by API set) ---------------- *)
 
+(* Calls are statement-only because the model does not expose atomics' old
+   value. Their target is always a subscript: source lowering turns &arr[i]
+   into [ESubscript arr i] and a bare pointer [p] into [ESubscript p 0]. *)
 Fixpoint wf_expr (e : expr) : bool :=
   match e with
-  | ECall f args => andb (is_atomic f) (forallb wf_expr args)
+  | ECall _ _ => false
   | EBinop _ l r => andb (wf_expr l) (wf_expr r)
   | EUnop _ e1 => wf_expr e1
   | ESubscript b i => andb (wf_expr b) (wf_expr i)
   | _ => true
   end.
+
+Definition is_subscript (e : expr) : bool :=
+  match e with ESubscript _ _ => true | _ => false end.
+
+Definition wf_atomic_call (f : string) (args : list expr) : bool :=
+  andb (is_atomic f)
+    (match f, args with
+     | "atomicCAS", d :: c :: v :: [] =>
+         andb (is_subscript d) (forallb wf_expr [d; c; v])
+     | "atomicCAS", _ => false
+     | _, d :: v :: [] =>
+         andb (is_subscript d) (forallb wf_expr [d; v])
+     | _, _ => false
+     end).
 
 Fixpoint wf_stmt (s : stmt) : bool :=
   let fix go (l : list stmt) : bool :=
@@ -622,6 +639,7 @@ Fixpoint wf_stmt (s : stmt) : bool :=
   | SStore t v => wf_expr t && wf_expr v
   | SIf c th el => wf_expr c && go th && go el
   | SSync => true
+  | SExpr (ECall f args) => wf_atomic_call f args
   | SExpr e => wf_expr e
   end.
 
@@ -663,7 +681,11 @@ Definition wf_launch_targets (p : program) : bool :=
                     | _ => true
                     end) (phost p).
 
+Definition wf_programb (apis : list string) (header : string) (p : program) : bool :=
+  String.eqb (pheader p) header &&
+  forallb wf_kernel (pkernels p) &&
+  forallb (wf_hostNode apis) (phost p) &&
+  wf_launch_targets p.
+
 Definition wf_program (apis : list string) (header : string) (p : program) : Prop :=
-  pheader p = header /\ Forall (fun k => wf_kernel k = true) (pkernels p) /\
-  Forall (fun n => wf_hostNode apis n = true) (phost p) /\
-  wf_launch_targets p = true.
+  wf_programb apis header p = true.
